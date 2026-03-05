@@ -10,28 +10,41 @@ file = st.file_uploader("Upload Dataset", type=["xlsx","csv"])
 
 if file is not None:
 
-    # Load data
-    if file.name.endswith(".csv"):
-        df = pd.read_csv(file)
-    else:
-        df = pd.read_excel(file)
+    # ---------- LOAD DATA ----------
+    try:
+        if file.name.endswith(".csv"):
+            try:
+                df = pd.read_csv(file, encoding="utf-8")
+            except:
+                df = pd.read_csv(file, encoding="latin1")
+        else:
+            df = pd.read_excel(file)
+    except Exception as e:
+        st.error("Error reading file. Please upload a valid dataset.")
+        st.stop()
 
     st.subheader("Dataset Preview")
     st.dataframe(df.head())
 
-    # Detect column types
-    numeric_cols = df.select_dtypes(include=['number']).columns
-    text_cols = df.select_dtypes(include=['object']).columns
-    date_cols = df.select_dtypes(include=['datetime']).columns
+    # ---------- DETECT COLUMN TYPES ----------
+    numeric_cols = df.select_dtypes(include=["number"]).columns
+    text_cols = df.select_dtypes(include=["object"]).columns
 
+    # ---------- KPI SECTION ----------
     st.header("Key Performance Indicators")
 
-    for col in numeric_cols:
-        st.metric(
-            label=f"Total {col}",
-            value=round(df[col].sum(),2)
-        )
+    if len(numeric_cols) > 0:
+        cols = st.columns(min(4, len(numeric_cols)))
 
+        for i, col in enumerate(numeric_cols):
+            cols[i % 4].metric(
+                label=f"Total {col}",
+                value=round(df[col].sum(), 2)
+            )
+    else:
+        st.write("No numeric columns found for KPI generation.")
+
+    # ---------- INSIGHTS ----------
     st.header("Insights")
 
     if len(text_cols) > 0 and len(numeric_cols) > 0:
@@ -50,34 +63,45 @@ if file is not None:
         # Chart
         fig, ax = plt.subplots()
         summary.plot(kind="bar", ax=ax)
+        plt.xticks(rotation=45)
         st.pyplot(fig)
 
+    else:
+        st.write("Not enough columns to generate insights.")
+
+    # ---------- TREND ANALYSIS ----------
     st.header("Trend Analysis")
 
-    # Detect date column automatically
+    date_col = None
+
     for col in df.columns:
         try:
-            df[col] = pd.to_datetime(df[col])
-            date_col = col
-            break
+            converted = pd.to_datetime(df[col])
+            if converted.notna().sum() > len(df) * 0.5:
+                df[col] = converted
+                date_col = col
+                break
         except:
-            continue
+            pass
 
-    if 'date_col' in locals():
+    if date_col and len(numeric_cols) > 0:
+
+        value = numeric_cols[0]
 
         df_sorted = df.sort_values(date_col)
 
-        if len(numeric_cols) > 0:
+        trend = df_sorted.groupby(date_col)[value].sum()
 
-            value = numeric_cols[0]
+        fig2, ax2 = plt.subplots()
+        trend.plot(ax=ax2)
+        plt.xticks(rotation=45)
 
-            trend = df_sorted.groupby(date_col)[value].sum()
+        st.pyplot(fig2)
 
-            fig2, ax2 = plt.subplots()
-            trend.plot(ax=ax2)
+    else:
+        st.write("No valid date column detected for trend analysis.")
 
-            st.pyplot(fig2)
-
+    # ---------- SIMPLE PREDICTION ----------
     st.header("Prediction")
 
     if len(numeric_cols) > 0:
@@ -87,3 +111,6 @@ if file is not None:
         prediction = df[value].mean() * 1.1
 
         st.write(f"Predicted next value for **{value}**: {round(prediction,2)}")
+
+    else:
+        st.write("Prediction unavailable (no numeric columns found).")
